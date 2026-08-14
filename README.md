@@ -10,7 +10,7 @@
 
 - 使用 `torchvision.datasets.CIFAR10` 加载 CIFAR-10 数据集
 - 使用 `DataLoader` 进行 mini-batch 训练
-- 自定义 CNN 网络并自动选择 GPU / CPU
+- 在 `models/cnn.py` 中统一定义 CNN 网络，并自动选择 GPU / CPU
 - 使用 CrossEntropyLoss 和 SGD + Momentum 完成模型优化
 - 正确切换 `model.train()` 与 `model.eval()`
 - 使用 `torch.no_grad()` 完成测试集评估
@@ -26,7 +26,8 @@
 ├── models/
 │   └── cnn.py                  # CNN 模型定义
 ├── checkpoints/
-│   └── best_model.pth          # 训练生成的最佳模型参数
+│   └── <experiment>/
+│       └── best_model.pth      # 各实验生成的最佳模型参数
 ├── logs/
 │   └── CIFAR10/                # TensorBoard 实验日志
 ├── train.py                    # 模型训练与逐轮评估
@@ -60,22 +61,34 @@ PyTorch 的 CUDA 构建需要与本机驱动和 CUDA 环境匹配。如果需要
 
 ## 运行方式
 
-训练模型：
+通过 `--experiment` 选择实验配置：
+
+| 参数 | Data Augmentation | Batch Normalization |
+| --- | :---: | :---: |
+| `baseline` | 否 | 否 |
+| `augmentation` | 是 | 否 |
+| `bn` | 否 | 是 |
+| `augmentation_bn` | 是 | 是 |
+
+分别运行四组实验：
 
 ```bash
-python train.py
+python train.py --experiment baseline
+python train.py --experiment augmentation
+python train.py --experiment bn
+python train.py --experiment augmentation_bn
 ```
 
-训练过程中，验证准确率最高的参数会保存为：
+训练日志和最佳模型会按实验名分别保存。例如，`augmentation_bn` 的最佳参数位于：
 
 ```text
-checkpoints/best_model.pth
+checkpoints/augmentation_bn/best_model.pth
 ```
 
-测试最佳模型：
+测试对应实验的最佳模型：
 
 ```bash
-python test.py
+python test.py --experiment augmentation_bn
 ```
 
 查看 TensorBoard 曲线：
@@ -261,7 +274,10 @@ logs/CIFAR10/
 ```python
 if test_accuracy > best_accuracy:
     best_accuracy = test_accuracy
-    torch.save(net.state_dict(), "checkpoints/best_model.pth")
+    torch.save(
+        net.state_dict(),
+        f"checkpoints/{experiment}/best_model.pth",
+    )
 ```
 
 没有直接保存最后一个 Epoch 的模型，因为训练准确率可能继续提高，但测试准确率可能已经开始下降。因此，最后一轮不一定是泛化能力最好的模型，这也是 Best Checkpoint 和 Early Stopping 的意义。

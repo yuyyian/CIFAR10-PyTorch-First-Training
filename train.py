@@ -1,63 +1,65 @@
+import argparse
 from pathlib import Path
 
 import torch
 import torchvision
-from torch import nn
 from torch.nn import CrossEntropyLoss
 from torch.utils.tensorboard import SummaryWriter
 
-class myNet(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.model = nn.Sequential(
-            nn.Conv2d(3, 32, kernel_size=5, stride=1, padding=2),
-            nn.BatchNorm2d(32),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),
+from models.cnn import myNet
 
-            nn.Conv2d(32, 32, kernel_size=5, stride=1, padding=2),
-            nn.BatchNorm2d(32),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),
 
-            nn.Conv2d(32, 64, kernel_size=5, stride=1, padding=2),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),
+EXPERIMENTS = {
+    "baseline": {"use_augmentation": False, "use_bn": False},
+    "augmentation": {"use_augmentation": True, "use_bn": False},
+    "bn": {"use_augmentation": False, "use_bn": True},
+    "augmentation_bn": {"use_augmentation": True, "use_bn": True},
+}
 
-            nn.Flatten(),
-            nn.Linear(64 * 4 * 4, 64),
-            nn.ReLU(),
-            nn.Linear(64, 10)
-        )
 
-    def forward(self,x):
-        x = self.model(x)
-        return x
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="训练 CIFAR-10 CNN 对照实验"
+    )
+    parser.add_argument(
+        "--experiment",
+        choices=EXPERIMENTS,
+        required=True,
+        help="选择要运行的实验配置",
+    )
+    return parser.parse_args()
 
-def main():
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"使用设备: {device}")
 
-    # 普通
-    # log_dir = "./logs/CIFAR10/baseline"
-    # 数据增强
-    # log_dir = "./logs/CIFAR10/augmentation"
-    # BatchNorm
-    # log_dir = "./logs/CIFAR10/bn"
-    # 数据增强 + BatchNorm
-    log_dir = "./logs/CIFAR10/augmentation_bn"
-    writer = SummaryWriter(log_dir)
-
-    try:
-        train_transform = torchvision.transforms.Compose([
+def build_train_transform(use_augmentation):
+    transforms = []
+    if use_augmentation:
+        transforms.extend([
             torchvision.transforms.RandomCrop(32, padding=4),
             torchvision.transforms.RandomHorizontalFlip(p=0.5),
-            torchvision.transforms.ToTensor()
         ])
-        test_transform = torchvision.transforms.Compose([
-            torchvision.transforms.ToTensor()
-        ])
+    transforms.append(torchvision.transforms.ToTensor())
+    return torchvision.transforms.Compose(transforms)
+
+
+def main():
+    args = parse_args()
+    experiment = EXPERIMENTS[args.experiment]
+    use_augmentation = experiment["use_augmentation"]
+    use_bn = experiment["use_bn"]
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"使用设备: {device}")
+    print(
+        f"实验配置: {args.experiment} "
+        f"(data augmentation={use_augmentation}, batch norm={use_bn})"
+    )
+
+    log_dir = Path("logs/CIFAR10") / args.experiment
+    writer = SummaryWriter(str(log_dir))
+
+    try:
+        train_transform = build_train_transform(use_augmentation)
+        test_transform = torchvision.transforms.ToTensor()
 
         train_dataset = torchvision.datasets.CIFAR10(
             root="data",
@@ -86,7 +88,7 @@ def main():
             shuffle=False
         )
 
-        net = myNet().to(device)
+        net = myNet(use_bn=use_bn).to(device)
         loss_fn = CrossEntropyLoss().to(device)
 
         learning_rate = 1e-2
@@ -100,7 +102,9 @@ def main():
         epochs = 20
         best_epoch = 0
         best_accuracy = 0.0
-        checkpoint_path = Path("checkpoints/best_model.pth")
+        checkpoint_path = (
+            Path("checkpoints") / args.experiment / "best_model.pth"
+        )
         checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
 
         for epoch in range(epochs):
